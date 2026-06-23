@@ -1,0 +1,7 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+cost_summary.json
+knowledge_graph.png
+walkthrough.md

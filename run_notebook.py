@@ -8,8 +8,9 @@ import base64
 import traceback
 import numpy as np
 
-# Set OpenAI API Key in environment
-os.environ["OPENAI_API_KEY"] = "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"
+from dotenv import load_dotenv
+load_dotenv()
+import os
 
 # Load notebook
 notebook_path = r"d:\VScode\Lab19\graphrag_lab.ipynb"
@@ -125,7 +126,7 @@ for idx, cell in enumerate(nb["cells"]):
         source_code = source_code.replace('LLM_PROVIDER       = "ollama"', 'LLM_PROVIDER       = "openai"')
         source_code = source_code.replace('LLM_PROVIDER       = "gemini"', 'LLM_PROVIDER       = "openai"')
         source_code = source_code.replace('EXTRACTION_BACKEND = "prompt"', 'EXTRACTION_BACKEND = "langextract"')
-        source_code = f"import os\nos.environ['OPENAI_API_KEY'] = '{os.environ['OPENAI_API_KEY']}'\n" + source_code
+        source_code = "from dotenv import load_dotenv\nload_dotenv()\n" + source_code
         cell["source"] = [line + "\n" for line in source_code.splitlines()]
         
     # 3. Modify load_documents / chunking cell (Cell 10)
