@@ -66,11 +66,11 @@ from tqdm.auto import tqdm
 # CELL 5 (code)
 # ==========================================
 import os
-os.environ['OPENAI_API_KEY'] = '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'
-import os
-os.environ['OPENAI_API_KEY'] = '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'
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
 # ====================== CONFIG ======================
-LLM_PROVIDER       = "openai"        # "ollama" | "openai" | "gemini"
+LLM_PROVIDER       = "ollama"        # "ollama" | "openai" | "gemini"
 GRAPH_BACKEND      = "networkx"      # "networkx" | "neo4j"
 EXTRACTION_BACKEND = "langextract"   # "langextract" | "prompt"
 
@@ -100,23 +100,18 @@ print(f"LLM_PROVIDER={LLM_PROVIDER} | EXTRACTION_BACKEND={EXTRACTION_BACKEND} | 
 # ==========================================
 # CELL 6 (code)
 # ==========================================
+import os
 import sys
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
+# Mock Google Colab userdata for local run compatability
 class MockUserdata:
     def get(self, key):
         return os.environ.get(key)
 userdata = MockUserdata()
 sys.modules['google.colab'] = type('sys', (), {'userdata': userdata})
 
-import os
-os.environ['OPENAI_API_KEY'] = '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'
-class MockUserdata:
-    def get(self, key):
-        return os.environ.get(key)
-userdata = MockUserdata()
-sys.modules['google.colab'] = type('sys', (), {'userdata': userdata})
-
-import os
-os.environ['OPENAI_API_KEY'] = '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'
 # ---- Provider-agnostic LLM + embedding wrappers ----
 import google.generativeai as genai
 from google.colab import userdata
@@ -278,6 +273,9 @@ print("\nExample chunk:\n", chunks[0]["text"][:300])
 # ==========================================
 # CELL 12 (code)
 # ==========================================
+import langextract as lx
+import re
+import json
 
 LX_PROMPT = """
 Extract all entities and their relationships.
@@ -331,12 +329,6 @@ LX_EXAMPLES = [
     )
 ]
 
-import os
-os.environ['OPENAI_API_KEY'] = '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'
-import textwrap
-import langextract as lx
-
-# ... (parse_json_triples and extract_triples_prompt stay the same) ...
 def parse_json_triples(raw):
     if not raw: return []
     text = raw.strip()
@@ -372,12 +364,12 @@ def _langextract_model_kwargs():
     if LLM_PROVIDER == "ollama":
         return {"model_id": OLLAMA_MODEL, "model_url": OLLAMA_HOST}
     if LLM_PROVIDER == "openai":
-        return {"model_id": OPENAI_MODEL}
+        import os
+        return {"model_id": OPENAI_MODEL, "api_key": os.environ.get("OPENAI_API_KEY")}
     if LLM_PROVIDER == "gemini":
         return {"model_id": GEMINI_MODEL, "api_key": userdata.get('GOOGLE_API_KEY')}
     raise ValueError("Unknown LLM_PROVIDER: " + LLM_PROVIDER)
 
-# ... (Rest of extraction functions remain the same) ...
 def lx_extractions_to_triples(result):
     triples = []
     for ext in (result.extractions or []):

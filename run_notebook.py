@@ -7,9 +7,11 @@ import time
 import base64
 import traceback
 import numpy as np
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(dotenv_path=r"d:\VScode\Lab19\.env", override=True)
 import os
 
 # Load notebook
@@ -29,49 +31,51 @@ token_log = {
     "embed_calls": 0,
 }
 
-# Pricing for gpt-4o-mini and text-embedding-3-small (as of 2026)
-# gpt-4o-mini: $0.150 per 1M input tokens, $0.600 per 1M output tokens
-# text-embedding-3-small: $0.020 per 1M tokens
+# Ollama self-hosted pricing is $0.00
 PRICING = {
-    "gpt-4o-mini-input": 0.15 / 1_000_000,
-    "gpt-4o-mini-output": 0.60 / 1_000_000,
-    "embedding": 0.02 / 1_000_000
+    "llm-input": 0.0,
+    "llm-output": 0.0,
+    "embedding": 0.0
 }
 
-# Custom llm_complete with token tracking
+# Custom llm_complete with token tracking for Ollama
 def tracked_llm_complete(prompt, system=None, temperature=0.0, max_tokens=1200):
-    from openai import OpenAI
-    client = OpenAI()
-    messages = []
+    import requests
+    payload = {"model": "llama3.1", "prompt": prompt, "stream": False,
+               "options": {"temperature": temperature, "num_predict": max_tokens}}
     if system:
-        messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": prompt})
+        payload["system"] = system
     
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens
-    )
+    r = requests.post("http://localhost:11434/api/generate", json=payload, timeout=600)
+    r.raise_for_status()
+    resp_json = r.json()
     
-    token_log["llm_prompt_tokens"] += resp.usage.prompt_tokens
-    token_log["llm_completion_tokens"] += resp.usage.completion_tokens
+    p_tokens = resp_json.get("prompt_eval_count", 0)
+    c_tokens = resp_json.get("eval_count", 0)
+    
+    token_log["llm_prompt_tokens"] += p_tokens
+    token_log["llm_completion_tokens"] += c_tokens
     token_log["llm_calls"] += 1
     
-    return resp.choices[0].message.content
+    return resp_json["response"]
 
-# Custom embed with token tracking
+# Custom embed with token tracking for Ollama
 def tracked_embed(texts):
     if isinstance(texts, str):
         texts = [texts]
-    from openai import OpenAI
-    client = OpenAI()
-    resp = client.embeddings.create(model="text-embedding-3-small", input=texts)
-    
-    token_log["embed_tokens"] += resp.usage.prompt_tokens
-    token_log["embed_calls"] += 1
-    
-    return [np.array(d.embedding, dtype=float) for d in resp.data]
+    import requests
+    out = []
+    for t in texts:
+        r = requests.post("http://localhost:11434/api/embeddings",
+                          json={"model": "nomic-embed-text", "prompt": t}, timeout=600)
+        r.raise_for_status()
+        out.append(np.array(r.json()["embedding"], dtype=float))
+        
+        # Estimate embedding tokens by word count
+        token_log["embed_tokens"] += len(t.split())
+        token_log["embed_calls"] += 1
+        
+    return out
 
 # List of 20 benchmark questions
 BENCHMARK_QUESTIONS = [
@@ -123,10 +127,10 @@ for idx, cell in enumerate(nb["cells"]):
     # 2. Modify CONFIG cell (Cell 5)
     if "LLM_PROVIDER" in source_code and "OLLAMA_MODEL" in source_code:
         print("Modifying CONFIG parameters...")
-        source_code = source_code.replace('LLM_PROVIDER       = "ollama"', 'LLM_PROVIDER       = "openai"')
-        source_code = source_code.replace('LLM_PROVIDER       = "gemini"', 'LLM_PROVIDER       = "openai"')
+        source_code = source_code.replace('LLM_PROVIDER       = "openai"', 'LLM_PROVIDER       = "ollama"')
+        source_code = source_code.replace('LLM_PROVIDER       = "gemini"', 'LLM_PROVIDER       = "ollama"')
         source_code = source_code.replace('EXTRACTION_BACKEND = "prompt"', 'EXTRACTION_BACKEND = "langextract"')
-        source_code = "from dotenv import load_dotenv\nload_dotenv()\n" + source_code
+        source_code = "from dotenv import load_dotenv\nload_dotenv(dotenv_path=r\"d:\\VScode\\Lab19\\.env\", override=True)\n" + source_code
         cell["source"] = [line + "\n" for line in source_code.splitlines()]
         
     # 3. Modify load_documents / chunking cell (Cell 10)
@@ -222,6 +226,33 @@ LX_EXAMPLES = [
         source_code = re.sub(r"questions = \[[^\]]*\]", "questions = " + repr(BENCHMARK_QUESTIONS), source_code, flags=re.DOTALL)
         cell["source"] = [line + "\n" for line in source_code.splitlines()]
         
+    # 8. Check if cell is the slow extraction cell, and load from cache if available
+    if "all_triples = []" in source_code and "for ch in tqdm(chunks" in source_code:
+        if os.path.exists("all_triples_cache.json"):
+            print("Found all_triples_cache.json! Loading from cache to save time and API costs...")
+            source_code = """import json
+with open("all_triples_cache.json", "r", encoding="utf-8") as f:
+    all_triples = json.load(f)
+print(f"Loaded {len(all_triples)} raw triples from cache.")
+"""
+        else:
+            print("No cache found. Running extraction (this will take a while)...")
+            source_code += """
+import json
+with open("all_triples_cache.json", "w", encoding="utf-8") as f:
+    json.dump(all_triples, f, indent=4)
+print("Saved extracted triples to all_triples_cache.json")
+"""
+            
+    # 9. Modify _langextract_model_kwargs to return api_key for openai
+    if "def _langextract_model_kwargs():" in source_code:
+        print("Modifying _langextract_model_kwargs to return API key for OpenAI...")
+        source_code = source_code.replace(
+            'if LLM_PROVIDER == "openai":\n        return {"model_id": OPENAI_MODEL}',
+            'if LLM_PROVIDER == "openai":\n        import os\n        return {"model_id": OPENAI_MODEL, "api_key": os.environ.get("OPENAI_API_KEY")}'
+        )
+        cell["source"] = [line + "\n" for line in source_code.splitlines()]
+            
     # Capture stdout and stderr
     stdout_buf = io.StringIO()
     stderr_buf = io.StringIO()
@@ -332,11 +363,11 @@ print("\n=== TOKEN LOG SUMMARY ===")
 for k, v in token_log.items():
     print(f"{k}: {v}")
 
-# Cost calculations
-cost_input = token_log["llm_prompt_tokens"] * PRICING["gpt-4o-mini-input"]
-cost_output = token_log["llm_completion_tokens"] * PRICING["gpt-4o-mini-output"]
-cost_embed = token_log["embed_tokens"] * PRICING["embedding"]
-total_cost = cost_input + cost_output + cost_embed
+# Cost calculations (self-hosted is free)
+cost_input = 0.0
+cost_output = 0.0
+cost_embed = 0.0
+total_cost = 0.0
 
 print(f"Calculated Input LLM Cost: ${cost_input:.5f}")
 print(f"Calculated Output LLM Cost: ${cost_output:.5f}")

@@ -5,3 +5,8 @@ __pycache__/
 cost_summary.json
 knowledge_graph.png
 walkthrough.md
+OllamaSetup.exe
+ollama_install/
+all_triples_cache.json
+lx_demo.jsonl
+lx_extraction_viz.html
