@@ -1,0 +1,20 @@
+{
+    "token_log": {
+        "llm_prompt_tokens": 12,
+        "llm_completion_tokens": 1,
+        "embed_tokens": 2,
+        "llm_calls": 1,
+        "embed_calls": 1
+    },
+    "pricing": {
+        "gpt-4o-mini-input": 1.5e-07,
+        "gpt-4o-mini-output": 6e-07,
+        "embedding": 2e-08
+    },
+    "costs": {
+        "input_llm_cost": 1.8e-06,
+        "output_llm_cost": 6e-07,
+        "embedding_cost": 4e-08,
+        "total_cost": 2.44e-06
+    }
+}
